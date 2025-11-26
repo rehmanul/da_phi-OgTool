@@ -1,0 +1,349 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://ogtool:ogtool_pass@rabbitmq:5672/
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    volumes:
+      - ./services/api-gateway:/app
+    networks:
+      - ogtool-network
+
+  # Reddit Monitor Service
+  reddit-monitor:
+    build:
+      context: ./services/reddit-monitor
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - REDIS_URL=redis://redis:6379/1
+      - RABBITMQ_URL=amqp://ogtool:ogtool_pass@rabbitmq:5672/
+      - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID}
+      - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET}
+      - REDDIT_USER_AGENT=${REDDIT_USER_AGENT}
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    deploy:
+      replicas: 3
+    volumes:
+      - ./services/reddit-monitor:/app
+    networks:
+      - ogtool-network
+
+  # LinkedIn Monitor Service
+  linkedin-monitor:
+    build:
+      context: ./services/linkedin-monitor
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - REDIS_URL=redis://redis:6379/2
+      - RABBITMQ_URL=amqp://ogtool:ogtool_pass@rabbitmq:5672/
+      - PROXY_POOL_URL=${PROXY_POOL_URL}
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+      - selenium-hub
+    deploy:
+      replicas: 2
+    volumes:
+      - ./services/linkedin-monitor:/app
+    networks:
+      - ogtool-network
+
+  # Blog Monitor Service
+  blog-monitor:
+    build:
+      context: ./services/blog-monitor
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - REDIS_URL=redis://redis:6379/3
+      - RABBITMQ_URL=amqp://ogtool:ogtool_pass@rabbitmq:5672/
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    deploy:
+      replicas: 2
+    volumes:
+      - ./services/blog-monitor:/app
+    networks:
+      - ogtool-network
+
+  # AI Response Service
+  ai-response:
+    build:
+      context: ./services/ai-response
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - REDIS_URL=redis://redis:6379/4
+      - RABBITMQ_URL=amqp://ogtool:ogtool_pass@rabbitmq:5672/
+      - QDRANT_URL=http://qdrant:6333
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+      - qdrant
+    deploy:
+      replicas: 3
+    volumes:
+      - ./services/ai-response:/app
+    networks:
+      - ogtool-network
+
+  # Analytics Service
+  analytics:
+    build:
+      context: ./services/analytics
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379/5
+    depends_on:
+      - postgres
+      - clickhouse
+      - redis
+    deploy:
+      replicas: 2
+    volumes:
+      - ./services/analytics:/app
+    networks:
+      - ogtool-network
+
+  # Celery Workers
+  celery-worker:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=10
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://ogtool:ogtool_pass@rabbitmq:5672/
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    deploy:
+      replicas: 5
+    volumes:
+      - ./services/api-gateway:/app
+    networks:
+      - ogtool-network
+
+  # Celery Beat (Scheduler)
+  celery-beat:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    command: celery -A app.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://ogtool:ogtool_secure_pass@postgres:5432/ogtool
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://ogtool:ogtool_pass@rabbitmq:5672/
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    volumes:
+      - ./services/api-gateway:/app
+    networks:
+      - ogtool-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api-gateway:8000
+      - NEXT_PUBLIC_WS_URL=ws://api-gateway:8000
+    depends_on:
+      - api-gateway
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - ogtool-network
+
+  # PostgreSQL with TimescaleDB
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      - POSTGRES_DB=ogtool
+      - POSTGRES_USER=ogtool
+      - POSTGRES_PASSWORD=ogtool_secure_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ogtool-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - ogtool-network
+
+  # RabbitMQ
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=ogtool
+      - RABBITMQ_DEFAULT_PASS=ogtool_pass
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - ogtool-network
+
+  # Qdrant (Vector Database)
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - ogtool-network
+
+  # ClickHouse (Analytics DB)
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./database/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ogtool-network
+
+  # Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - ogtool-network
+
+  # Selenium Hub for LinkedIn scraping
+  selenium-hub:
+    image: selenium/hub:latest
+    ports:
+      - "4444:4444"
+    networks:
+      - ogtool-network
+
+  selenium-chrome:
+    image: selenium/node-chrome:latest
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+    deploy:
+      replicas: 3
+    networks:
+      - ogtool-network
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - ogtool-network
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - ogtool-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - api-gateway
+      - frontend
+    networks:
+      - ogtool-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  qdrant-data:
+  clickhouse-data:
+  elasticsearch-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  ogtool-network:
+    driver: bridge
