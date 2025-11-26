@@ -34,15 +34,27 @@ class Settings:
 settings = Settings()
 
 # Configure APIs
+openai_client = None
+gemini_model = None
+
 if settings.PERPLEXITY_API_KEY:
-    openai_client = openai.OpenAI(
-        api_key=settings.PERPLEXITY_API_KEY,
-        base_url="https://api.perplexity.ai"
-    )
+    try:
+        openai_client = openai.OpenAI(
+            api_key=settings.PERPLEXITY_API_KEY,
+            base_url="https://api.perplexity.ai"
+        )
+        logger.info(f"Perplexity API client initialized with key starting: {settings.PERPLEXITY_API_KEY[:8]}...")
+    except Exception as e:
+        logger.error(f"Failed to initialize Perplexity client: {e}")
+        openai_client = None
 
 if settings.GEMINI_API_KEY:
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    try:
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+        logger.info("Gemini API client initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini client: {e}")
 
 # Request/Response Models
 class LeadRequest(BaseModel):
@@ -207,68 +219,121 @@ async def search_leads(request: LeadRequest):
     leads = []
     errors = []
 
+    logger.info(f"Lead search request: keywords={request.keywords}, platforms={request.platforms}")
+    logger.info(f"Perplexity configured: {bool(settings.PERPLEXITY_API_KEY)}, Client initialized: {openai_client is not None}")
+
     # Use Perplexity AI for all searches since it's configured
-    if settings.PERPLEXITY_API_KEY:
+    if settings.PERPLEXITY_API_KEY and openai_client:
         for platform in request.platforms:
             try:
-                # Construct platform-specific search query
+                # Construct platform-specific search query for better results
+                keyword_string = ', '.join(request.keywords)
                 if platform == "reddit":
-                    search_query = f"Find recent Reddit posts and discussions about: {', '.join(request.keywords)}. Include post titles, key points, and subreddit names."
+                    search_query = f"""Search Reddit for recent posts about {keyword_string}.
+                    Return 5 specific posts with:
+                    1. Post title
+                    2. Subreddit name
+                    3. Key discussion points
+                    4. Author insights
+                    Format each post clearly separated."""
                 elif platform == "linkedin":
-                    search_query = f"Find recent LinkedIn posts and articles about: {', '.join(request.keywords)}. Include professional insights and industry trends."
+                    search_query = f"""Find LinkedIn posts and articles about {keyword_string}.
+                    Return 5 specific posts with:
+                    1. Post headline
+                    2. Professional insights
+                    3. Industry trends mentioned
+                    4. Key takeaways
+                    Format each post clearly separated."""
                 else:  # blogs
-                    search_query = f"Find recent blog posts and articles about: {', '.join(request.keywords)}. Include article titles, key insights, and publication sources."
+                    search_query = f"""Find recent blog posts about {keyword_string}.
+                    Return 5 specific articles with:
+                    1. Article title
+                    2. Blog/Publication name
+                    3. Main points covered
+                    4. Key insights
+                    Format each article clearly separated."""
+
+                logger.info(f"Searching {platform} with query length: {len(search_query)}")
 
                 # Use Perplexity to search
                 response = openai_client.chat.completions.create(
                     model="llama-3.1-sonar-small-128k-online",
                     messages=[{"role": "user", "content": search_query}],
-                    max_tokens=1000,
+                    max_tokens=1500,  # Increased for better results
                     temperature=0.7
                 )
 
                 content = response.choices[0].message.content
+                logger.info(f"Received response from Perplexity for {platform}, length: {len(content) if content else 0}")
+
                 if content:
-                    # Parse the response and create multiple leads
-                    # Split content into sections (rough parsing)
-                    sections = content.split('\n\n')
+                    # Better parsing logic - look for numbered items or bullet points
+                    # Split by common separators
+                    import re
 
-                    for i, section in enumerate(sections[:5]):  # Limit to 5 leads per platform
-                        if len(section) > 50:  # Skip very short sections
-                            # Extract a title (first line or first sentence)
+                    # Try to split by numbers (1., 2., etc) or bullet points
+                    split_pattern = r'(?:^|\n)(?:\d+\.|[\*\-•])\s+'
+                    sections = re.split(split_pattern, content)
+
+                    # If no good splits, try double newlines
+                    if len(sections) < 2:
+                        sections = content.split('\n\n')
+
+                    # Process each section into a lead
+                    lead_count = 0
+                    for i, section in enumerate(sections):
+                        if len(section.strip()) > 30 and lead_count < 5:  # Ensure meaningful content
+                            # Clean up section
+                            section = section.strip()
+
+                            # Extract title (first line or first sentence)
                             lines = section.split('\n')
-                            title = lines[0] if lines else f"{platform.title()} Lead #{i+1}"
-                            title = title.replace('*', '').replace('#', '').strip()[:200]
+                            title_line = lines[0] if lines else ""
 
+                            # Clean title
+                            title = re.sub(r'^[\d\.\)\-\*\s]+', '', title_line)  # Remove leading numbers/bullets
+                            title = title.replace('**', '').replace('*', '').replace('#', '').strip()
+
+                            # If title is too short or empty, create a better one
+                            if len(title) < 10:
+                                title = f"{platform.title()} insight: {request.keywords[0]}"
+
+                            # Truncate title to reasonable length
+                            title = title[:200]
+
+                            # Create lead
                             lead = Lead(
-                                id=f"{platform}_{datetime.now().timestamp()}_{i}",
+                                id=f"{platform}_{datetime.now().timestamp()}_{lead_count}",
                                 platform=platform,
-                                title=title if title else f"{platform.title()} result for: {request.keywords[0]}",
-                                content=section[:500],
-                                author="AI Discovery",
-                                url=f"https://perplexity.ai/search?q={'+'.join(request.keywords)}",
-                                score=1.0 - (i * 0.1),  # Decreasing score for order
+                                title=title,
+                                content=section[:800],  # Increased content length
+                                author=f"{platform.title()} Discovery",
+                                url=f"https://perplexity.ai/search?q={'+'.join([kw.replace(' ', '+') for kw in request.keywords])}",
+                                score=0.9 - (lead_count * 0.15),  # Better score distribution
                                 timestamp=datetime.now(),
-                                keywords_matched=request.keywords
+                                keywords_matched=[kw for kw in request.keywords if kw.lower() in section.lower()]
                             )
 
                             # Add persona analysis if provided
                             if request.persona:
                                 try:
-                                    analysis_prompt = f"As a {request.persona}, analyze this lead: {section[:300]}"
-                                    analysis = openai_client.chat.completions.create(
+                                    analysis_prompt = f"As a {request.persona}, provide a brief analysis of this lead in 2 sentences: {section[:300]}"
+                                    analysis_response = openai_client.chat.completions.create(
                                         model="llama-3.1-sonar-small-128k-online",
                                         messages=[{"role": "user", "content": analysis_prompt}],
-                                        max_tokens=150
+                                        max_tokens=100
                                     )
-                                    lead.ai_analysis = analysis.choices[0].message.content
-                                except:
-                                    pass
+                                    lead.ai_analysis = analysis_response.choices[0].message.content
+                                except Exception as ae:
+                                    logger.warning(f"Persona analysis failed: {ae}")
 
                             leads.append(lead)
+                            lead_count += 1
+
+                    logger.info(f"Created {lead_count} leads for {platform}")
 
             except Exception as e:
-                logger.error(f"{platform} search error: {e}")
+                logger.error(f"{platform} search error: {e}", exc_info=True)
                 errors.append(f"{platform}: {str(e)}")
 
     # Reddit API search (fallback if configured)
@@ -299,19 +364,51 @@ async def search_leads(request: LeadRequest):
         except Exception as e:
             logger.warning(f"Reddit API error: {e}")
 
-    # If no leads found, create a helpful message
-    if not leads and not errors:
-        leads.append(Lead(
-            id="no_results",
-            platform="system",
-            title="No leads found - Configuration needed",
-            content="No leads were found. This could be because: 1) The search terms are too specific, 2) API keys need to be configured in environment variables, or 3) The platforms are temporarily unavailable. Try broader search terms or check the API configuration.",
-            author="System",
-            url="/docs",
-            score=0.0,
-            timestamp=datetime.now(),
-            keywords_matched=request.keywords
-        ))
+    # If no leads found, provide helpful information
+    if not leads:
+        if errors:
+            # If there were errors, create informative lead about the issue
+            error_summary = "; ".join(errors[:3])  # Show first 3 errors
+            leads.append(Lead(
+                id="error_info",
+                platform="system",
+                title="Search encountered errors",
+                content=f"The search encountered the following errors: {error_summary}. Please check the application logs for more details. Ensure API keys are properly configured in environment variables.",
+                author="System",
+                url="/health",
+                score=0.0,
+                timestamp=datetime.now(),
+                keywords_matched=request.keywords
+            ))
+        elif not settings.PERPLEXITY_API_KEY:
+            # No API key configured
+            leads.append(Lead(
+                id="config_needed",
+                platform="system",
+                title="Perplexity API Key Required",
+                content="The Perplexity API key is not configured. Please set the PERPLEXITY_API_KEY environment variable to enable AI-powered lead generation. Visit the /health endpoint to check configuration status.",
+                author="System",
+                url="/health",
+                score=0.0,
+                timestamp=datetime.now(),
+                keywords_matched=request.keywords
+            ))
+        else:
+            # API configured but no results - provide production sample
+            leads.append(Lead(
+                id="sample_1",
+                platform="system",
+                title="No results found - Try different keywords",
+                content=f"No leads were found for keywords: {', '.join(request.keywords)}. Try using broader terms, checking different platforms, or adjusting your search criteria. The AI search is operational but didn't find matching content.",
+                author="System",
+                url="/docs",
+                score=0.0,
+                timestamp=datetime.now(),
+                keywords_matched=request.keywords
+            ))
+
+    # Log final results
+    logger.info(f"Returning {len(leads)} leads, {len(errors)} errors encountered")
 
     return leads[:request.limit]
 
