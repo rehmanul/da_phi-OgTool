@@ -40,5 +40,5 @@ ENV PYTHONUNBUFFERED=1
 # Expose port
 EXPOSE 8000
 
-# Run the monolith
-CMD ["python", "monolith.py"]
+# Run the simplified monolith
+CMD ["python", "monolith_simple.py"]
