@@ -23,6 +23,7 @@ tiktoken==0.8.0
 # Utilities
 structlog==25.5.0
 prometheus-client==0.21.0
+prometheus-fastapi-instrumentator==7.0.0
 
 # Reddit monitoring
 praw==7.8.1
