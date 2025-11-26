@@ -205,77 +205,113 @@ async def generate_ai_response(request: AIRequest):
 async def search_leads(request: LeadRequest):
     """Search for leads based on keywords and platforms"""
     leads = []
+    errors = []
 
-    # Reddit Search
-    if "reddit" in request.platforms:
+    # Use Perplexity AI for all searches since it's configured
+    if settings.PERPLEXITY_API_KEY:
+        for platform in request.platforms:
+            try:
+                # Construct platform-specific search query
+                if platform == "reddit":
+                    search_query = f"Find recent Reddit posts and discussions about: {', '.join(request.keywords)}. Include post titles, key points, and subreddit names."
+                elif platform == "linkedin":
+                    search_query = f"Find recent LinkedIn posts and articles about: {', '.join(request.keywords)}. Include professional insights and industry trends."
+                else:  # blogs
+                    search_query = f"Find recent blog posts and articles about: {', '.join(request.keywords)}. Include article titles, key insights, and publication sources."
+
+                # Use Perplexity to search
+                response = openai_client.chat.completions.create(
+                    model="llama-3.1-sonar-small-128k-online",
+                    messages=[{"role": "user", "content": search_query}],
+                    max_tokens=1000,
+                    temperature=0.7
+                )
+
+                content = response.choices[0].message.content
+                if content:
+                    # Parse the response and create multiple leads
+                    # Split content into sections (rough parsing)
+                    sections = content.split('\n\n')
+
+                    for i, section in enumerate(sections[:5]):  # Limit to 5 leads per platform
+                        if len(section) > 50:  # Skip very short sections
+                            # Extract a title (first line or first sentence)
+                            lines = section.split('\n')
+                            title = lines[0] if lines else f"{platform.title()} Lead #{i+1}"
+                            title = title.replace('*', '').replace('#', '').strip()[:200]
+
+                            lead = Lead(
+                                id=f"{platform}_{datetime.now().timestamp()}_{i}",
+                                platform=platform,
+                                title=title if title else f"{platform.title()} result for: {request.keywords[0]}",
+                                content=section[:500],
+                                author="AI Discovery",
+                                url=f"https://perplexity.ai/search?q={'+'.join(request.keywords)}",
+                                score=1.0 - (i * 0.1),  # Decreasing score for order
+                                timestamp=datetime.now(),
+                                keywords_matched=request.keywords
+                            )
+
+                            # Add persona analysis if provided
+                            if request.persona:
+                                try:
+                                    analysis_prompt = f"As a {request.persona}, analyze this lead: {section[:300]}"
+                                    analysis = openai_client.chat.completions.create(
+                                        model="llama-3.1-sonar-small-128k-online",
+                                        messages=[{"role": "user", "content": analysis_prompt}],
+                                        max_tokens=150
+                                    )
+                                    lead.ai_analysis = analysis.choices[0].message.content
+                                except:
+                                    pass
+
+                            leads.append(lead)
+
+            except Exception as e:
+                logger.error(f"{platform} search error: {e}")
+                errors.append(f"{platform}: {str(e)}")
+
+    # Reddit API search (fallback if configured)
+    if "reddit" in request.platforms and settings.REDDIT_CLIENT_ID and settings.REDDIT_CLIENT_SECRET:
         try:
             import praw
-            if settings.REDDIT_CLIENT_ID and settings.REDDIT_CLIENT_SECRET:
-                reddit = praw.Reddit(
-                    client_id=settings.REDDIT_CLIENT_ID,
-                    client_secret=settings.REDDIT_CLIENT_SECRET,
-                    user_agent=settings.REDDIT_USER_AGENT
-                )
-
-                for keyword in request.keywords[:3]:  # Limit to prevent rate limiting
-                    subreddit = reddit.subreddit("all")
-                    for submission in subreddit.search(keyword, limit=min(request.limit, 5)):
-                        lead = Lead(
-                            id=submission.id,
-                            platform="reddit",
-                            title=submission.title,
-                            content=submission.selftext[:500] if submission.selftext else "",
-                            author=str(submission.author) if submission.author else "deleted",
-                            url=f"https://reddit.com{submission.permalink}",
-                            score=float(submission.score),
-                            timestamp=datetime.fromtimestamp(submission.created_utc),
-                            keywords_matched=[keyword]
-                        )
-
-                        # AI Analysis if persona is provided
-                        if request.persona and settings.PERPLEXITY_API_KEY:
-                            try:
-                                analysis_prompt = f"Analyze this Reddit post as a {request.persona}: Title: {lead.title}, Content: {lead.content[:200]}"
-                                analysis = openai_client.chat.completions.create(
-                                    model="llama-3.1-sonar-small-128k-online",
-                                    messages=[{"role": "user", "content": analysis_prompt}],
-                                    max_tokens=150
-                                )
-                                lead.ai_analysis = analysis.choices[0].message.content
-                            except:
-                                pass
-
-                        leads.append(lead)
-        except Exception as e:
-            logger.warning(f"Reddit search error: {e}")
-
-    # Blog/Web Search using Perplexity
-    if "blogs" in request.platforms and settings.PERPLEXITY_API_KEY:
-        try:
-            search_query = f"Find recent blog posts about: {', '.join(request.keywords)}"
-            response = openai_client.chat.completions.create(
-                model="llama-3.1-sonar-small-128k-online",
-                messages=[{"role": "user", "content": search_query}],
-                max_tokens=500
+            reddit = praw.Reddit(
+                client_id=settings.REDDIT_CLIENT_ID,
+                client_secret=settings.REDDIT_CLIENT_SECRET,
+                user_agent=settings.REDDIT_USER_AGENT
             )
 
-            # Parse and create synthetic leads from the response
-            content = response.choices[0].message.content
-            if content:
-                lead = Lead(
-                    id=f"blog_{datetime.now().timestamp()}",
-                    platform="blogs",
-                    title=f"Blog results for: {', '.join(request.keywords[:2])}",
-                    content=content[:500],
-                    author="AI Aggregated",
-                    url="https://perplexity.ai",
-                    score=1.0,
-                    timestamp=datetime.now(),
-                    keywords_matched=request.keywords
-                )
-                leads.append(lead)
+            for keyword in request.keywords[:2]:  # Limit to prevent rate limiting
+                subreddit = reddit.subreddit("all")
+                for submission in subreddit.search(keyword, limit=3):
+                    lead = Lead(
+                        id=submission.id,
+                        platform="reddit",
+                        title=submission.title,
+                        content=submission.selftext[:500] if submission.selftext else "",
+                        author=str(submission.author) if submission.author else "deleted",
+                        url=f"https://reddit.com{submission.permalink}",
+                        score=float(submission.score),
+                        timestamp=datetime.fromtimestamp(submission.created_utc),
+                        keywords_matched=[keyword]
+                    )
+                    leads.append(lead)
         except Exception as e:
-            logger.warning(f"Blog search error: {e}")
+            logger.warning(f"Reddit API error: {e}")
+
+    # If no leads found, create a helpful message
+    if not leads and not errors:
+        leads.append(Lead(
+            id="no_results",
+            platform="system",
+            title="No leads found - Configuration needed",
+            content="No leads were found. This could be because: 1) The search terms are too specific, 2) API keys need to be configured in environment variables, or 3) The platforms are temporarily unavailable. Try broader search terms or check the API configuration.",
+            author="System",
+            url="/docs",
+            score=0.0,
+            timestamp=datetime.now(),
+            keywords_matched=request.keywords
+        ))
 
     return leads[:request.limit]
 
