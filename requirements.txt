@@ -1,0 +1,42 @@
+# Core web framework
+fastapi==0.115.0
+uvicorn==0.32.0
+pydantic==2.9.2
+pydantic-settings==2.6.0
+
+# Database
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+
+# LLM APIs (Perplexity + Gemini)
+openai==1.54.0
+google-generativeai==0.8.3
+tiktoken==0.8.0
+
+# Optional dependencies (gracefully handle if not installed)
+# clickhouse-driver==0.2.9
+# qdrant-client==1.12.0
+
+# Message queue (in-memory, no external deps)
+# aio_pika==9.5.8
+
+# Utilities
+structlog==25.5.0
+prometheus-client==0.21.0
+
+# Reddit monitoring
+praw==7.8.1
+
+# LinkedIn monitoring (optional)
+selenium==4.27.1
+beautifulsoup4==4.12.3
+
+# Blog monitoring
+feedparser==6.0.11
+trafilatura==2.0.1
+requests==2.32.3
+
+# Common
+python-dateutil==2.9.0
+pytz==2024.2
+httpx==0.27.2
