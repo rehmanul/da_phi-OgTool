@@ -298,7 +298,7 @@ WEBHOOK_TEMPLATES = {
     "make": {
         "name": "Make (Integromat)",
         "url_pattern": "hook.integromat.com",
-        "format": "simple"
+        "format": "simple",
         "documentation": "https://www.make.com/en/help/tools/webhooks"
     },
     "pabbly": {
