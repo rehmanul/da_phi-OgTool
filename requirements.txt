@@ -7,11 +7,19 @@ pydantic-settings==2.6.0
 # Database
 asyncpg==0.30.0
 psycopg2-binary==2.9.10
+sqlalchemy==2.0.23
+alembic==1.13.0
 
 # LLM APIs (Perplexity + Gemini)
 openai==1.54.0
 google-generativeai==0.8.3
 tiktoken==0.8.0
+
+# Authentication
+passlib==1.7.4
+bcrypt==4.1.2
+python-jose[cryptography]==3.3.0
+pyjwt==2.8.0
 
 # Optional dependencies (gracefully handle if not installed)
 # clickhouse-driver==0.2.9
