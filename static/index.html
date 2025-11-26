@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OGTool - AI-Powered Lead Generation Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app" class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <span class="text-2xl font-bold text-indigo-600">OGTool</span>
+                        <span class="ml-2 text-sm text-gray-500">Lead Generation AI</span>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <span id="connection-status" class="text-sm text-green-600">● Connected</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Dashboard -->
+        <div class="max-w-7xl mx-auto px-4 py-8">
+            <!-- Lead Search Section -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-6">Lead Generation Search</h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <!-- Keywords Input -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Keywords (comma separated)</label>
+                        <input type="text" id="keywords-input"
+                               value="AI startup, machine learning, SaaS"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500">
+                    </div>
+
+                    <!-- Platforms Selection -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Platforms</label>
+                        <div class="flex space-x-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="reddit-check" checked class="mr-2">
+                                <span>Reddit</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="linkedin-check" class="mr-2">
+                                <span>LinkedIn</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="blogs-check" checked class="mr-2">
+                                <span>Blogs</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Persona Input -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">AI Persona (optional)</label>
+                    <input type="text" id="persona-input"
+                           placeholder="e.g., B2B SaaS Sales Manager"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <!-- Search Button -->
+                <button onclick="searchLeads()"
+                        class="w-full md:w-auto px-8 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <span id="search-btn-text">Search for Leads</span>
+                    <div id="search-spinner" class="loading-spinner hidden mx-auto"></div>
+                </button>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-section" class="hidden">
+                <h3 class="text-xl font-bold mb-4">Lead Results</h3>
+                <div id="leads-container" class="space-y-4"></div>
+            </div>
+
+            <!-- Monitor Section -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-6">Active Monitors</h2>
+
+                <div class="mb-4">
+                    <button onclick="createMonitor()"
+                            class="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">
+                        Create New Monitor
+                    </button>
+                </div>
+
+                <div id="monitors-list" class="space-y-3">
+                    <!-- Monitors will be loaded here -->
+                </div>
+            </div>
+
+            <!-- AI Chat Section -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-bold mb-6">AI Assistant</h2>
+
+                <div class="space-y-4">
+                    <textarea id="ai-prompt" rows="4"
+                              class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
+                              placeholder="Ask the AI for lead generation insights, market analysis, or outreach strategies..."></textarea>
+
+                    <div class="flex space-x-4">
+                        <button onclick="askAI('perplexity')"
+                                class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                            Ask Perplexity AI
+                        </button>
+                        <button onclick="askAI('gemini')"
+                                class="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700">
+                            Ask Gemini AI
+                        </button>
+                    </div>
+
+                    <div id="ai-response" class="hidden p-4 bg-gray-50 rounded-md">
+                        <h4 class="font-semibold mb-2">AI Response:</h4>
+                        <div id="ai-response-content" class="text-gray-700 whitespace-pre-wrap"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = window.location.origin;
+        let activeMonitors = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            checkConnection();
+            loadMonitors();
+            setInterval(checkConnection, 30000);
+            setInterval(loadMonitors, 60000);
+        });
+
+        // Check API connection
+        async function checkConnection() {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/health`);
+                document.getElementById('connection-status').innerHTML = '● Connected';
+                document.getElementById('connection-status').className = 'text-sm text-green-600';
+            } catch (error) {
+                document.getElementById('connection-status').innerHTML = '● Disconnected';
+                document.getElementById('connection-status').className = 'text-sm text-red-600';
+            }
+        }
+
+        // Search for leads
+        async function searchLeads() {
+            const keywords = document.getElementById('keywords-input').value.split(',').map(k => k.trim());
+            const platforms = [];
+            if (document.getElementById('reddit-check').checked) platforms.push('reddit');
+            if (document.getElementById('linkedin-check').checked) platforms.push('linkedin');
+            if (document.getElementById('blogs-check').checked) platforms.push('blogs');
+            const persona = document.getElementById('persona-input').value;
+
+            if (keywords.length === 0 || keywords[0] === '') {
+                alert('Please enter at least one keyword');
+                return;
+            }
+
+            // Show loading
+            document.getElementById('search-btn-text').style.display = 'none';
+            document.getElementById('search-spinner').style.display = 'block';
+
+            try {
+                const response = await axios.post(`${API_BASE_URL}/api/v1/leads/search`, {
+                    keywords: keywords,
+                    platforms: platforms,
+                    limit: 20,
+                    persona: persona || null
+                });
+
+                displayLeads(response.data);
+            } catch (error) {
+                console.error('Search error:', error);
+                alert('Search failed: ' + (error.response?.data?.detail || error.message));
+            } finally {
+                document.getElementById('search-btn-text').style.display = 'block';
+                document.getElementById('search-spinner').style.display = 'none';
+            }
+        }
+
+        // Display leads
+        function displayLeads(leads) {
+            const container = document.getElementById('leads-container');
+            const section = document.getElementById('results-section');
+
+            container.innerHTML = '';
+
+            if (leads.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">No leads found. Try different keywords or platforms.</p>';
+            } else {
+                leads.forEach(lead => {
+                    const leadCard = document.createElement('div');
+                    leadCard.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow';
+
+                    const platformColor = {
+                        reddit: 'text-orange-600',
+                        linkedin: 'text-blue-600',
+                        blogs: 'text-green-600'
+                    }[lead.platform] || 'text-gray-600';
+
+                    leadCard.innerHTML = `
+                        <div class="flex justify-between items-start mb-2">
+                            <h4 class="font-semibold text-lg">${escapeHtml(lead.title)}</h4>
+                            <span class="text-sm ${platformColor} font-medium">${lead.platform}</span>
+                        </div>
+                        <p class="text-gray-600 mb-2">${escapeHtml(lead.content || 'No content available')}</p>
+                        <div class="flex justify-between items-center text-sm text-gray-500">
+                            <span>By: ${escapeHtml(lead.author)}</span>
+                            <span>Score: ${lead.score}</span>
+                            <a href="${lead.url}" target="_blank" class="text-indigo-600 hover:underline">View Source →</a>
+                        </div>
+                        ${lead.ai_analysis ? `
+                            <div class="mt-3 p-3 bg-indigo-50 rounded">
+                                <p class="text-sm font-medium text-indigo-800">AI Analysis:</p>
+                                <p class="text-sm text-indigo-700">${escapeHtml(lead.ai_analysis)}</p>
+                            </div>
+                        ` : ''}
+                    `;
+
+                    container.appendChild(leadCard);
+                });
+            }
+
+            section.classList.remove('hidden');
+        }
+
+        // Ask AI
+        async function askAI(model) {
+            const prompt = document.getElementById('ai-prompt').value;
+            if (!prompt) {
+                alert('Please enter a prompt');
+                return;
+            }
+
+            const responseDiv = document.getElementById('ai-response');
+            const contentDiv = document.getElementById('ai-response-content');
+
+            responseDiv.classList.remove('hidden');
+            contentDiv.innerHTML = 'Generating response...';
+
+            try {
+                const response = await axios.post(`${API_BASE_URL}/api/v1/ai/generate`, {
+                    prompt: prompt,
+                    model: model,
+                    max_tokens: 1000,
+                    temperature: 0.7
+                });
+
+                contentDiv.innerHTML = response.data.response;
+            } catch (error) {
+                contentDiv.innerHTML = `Error: ${error.response?.data?.detail || error.message}`;
+            }
+        }
+
+        // Create monitor
+        async function createMonitor() {
+            const keywords = prompt('Enter keywords to monitor (comma separated):');
+            if (!keywords) return;
+
+            try {
+                const response = await axios.post(`${API_BASE_URL}/api/v1/monitors`, {
+                    keywords: keywords.split(',').map(k => k.trim()),
+                    platforms: ['reddit', 'blogs'],
+                    check_interval: 300,
+                    ai_enabled: true
+                });
+
+                alert(`Monitor created: ${response.data.monitor_id}`);
+                loadMonitors();
+            } catch (error) {
+                alert('Failed to create monitor: ' + (error.response?.data?.detail || error.message));
+            }
+        }
+
+        // Load monitors
+        async function loadMonitors() {
+            try {
+                const response = await axios.get(`${API_BASE_URL}/api/v1/monitors`);
+                activeMonitors = response.data;
+
+                const container = document.getElementById('monitors-list');
+                container.innerHTML = '';
+
+                if (activeMonitors.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500">No active monitors</p>';
+                } else {
+                    activeMonitors.forEach(monitor => {
+                        const monitorCard = document.createElement('div');
+                        monitorCard.className = 'flex justify-between items-center p-3 bg-gray-50 rounded';
+                        monitorCard.innerHTML = `
+                            <div>
+                                <span class="font-medium">${monitor.config.keywords.join(', ')}</span>
+                                <span class="text-sm text-gray-500 ml-2">Every ${monitor.config.check_interval}s</span>
+                            </div>
+                            <button onclick="deleteMonitor('${monitor.id}')"
+                                    class="text-red-600 hover:text-red-800">Delete</button>
+                        `;
+                        container.appendChild(monitorCard);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load monitors:', error);
+            }
+        }
+
+        // Delete monitor
+        async function deleteMonitor(monitorId) {
+            if (!confirm('Delete this monitor?')) return;
+
+            try {
+                await axios.delete(`${API_BASE_URL}/api/v1/monitors/${monitorId}`);
+                loadMonitors();
+            } catch (error) {
+                alert('Failed to delete monitor');
+            }
+        }
+
+        // Utility function to escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
