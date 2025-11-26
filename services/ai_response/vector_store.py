@@ -1,28 +1,44 @@
 """Vector store integration for knowledge base RAG"""
 import uuid
 from typing import List, Dict, Optional
-from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchAny
-from sentence_transformers import SentenceTransformer
 import structlog
 
 from app.config import settings
 
 logger = structlog.get_logger()
 
-_client: Optional[AsyncQdrantClient] = None
-_encoder: Optional[SentenceTransformer] = None
+# Optional Qdrant support
+try:
+    from qdrant_client import AsyncQdrantClient
+    from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchAny
+    from sentence_transformers import SentenceTransformer
+    HAS_QDRANT = True
+except ImportError:
+    HAS_QDRANT = False
+    AsyncQdrantClient = None
+
+_client: Optional[Any] = None
+_encoder: Optional[Any] = None
 
 
 async def init_vector_store():
     """Initialize Qdrant vector store"""
     global _client, _encoder
 
-    _client = AsyncQdrantClient(url=settings.QDRANT_URL)
-    _encoder = SentenceTransformer('all-MiniLM-L6-v2')
+    if not HAS_QDRANT:
+        logger.warning("Qdrant client not available, skipping vector store initialization")
+        return
 
-    # Create collection if not exists
+    # Skip if URL is not configured or explicitly disabled
+    if not settings.QDRANT_URL or settings.QDRANT_URL == "disabled":
+        logger.info("Vector store disabled by configuration")
+        return
+
     try:
+        _client = AsyncQdrantClient(url=settings.QDRANT_URL)
+        _encoder = SentenceTransformer('all-MiniLM-L6-v2')
+
+        # Create collection if not exists
         collections = await _client.get_collections()
         collection_names = [c.name for c in collections.collections]
 
@@ -32,18 +48,19 @@ async def init_vector_store():
                 vectors_config=VectorParams(size=384, distance=Distance.COSINE),
             )
             logger.info("Created vector collection", collection=settings.QDRANT_COLLECTION)
+        
+        logger.info("Vector store initialized")
     except Exception as e:
-        logger.warning("Error checking collection", error=str(e))
-
-    logger.info("Vector store initialized")
+        logger.warning("Failed to initialize vector store, continuing without RAG", error=str(e))
+        _client = None
 
 
 async def search_similar_documents(
     query: str, knowledge_base_ids: List[str], top_k: int = 5
 ) -> List[Dict]:
     """Search for similar documents in vector store"""
-    if not _client or not _encoder:
-        await init_vector_store()
+    if not HAS_QDRANT or not _client:
+        return []
 
     if not knowledge_base_ids:
         return []
@@ -81,7 +98,7 @@ async def search_similar_documents(
         return documents
 
     except Exception as e:
-        logger.error("Error searching documents", error=str(e), exc_info=True)
+        logger.error("Error searching documents", error=str(e))
         return []
 
 
@@ -93,8 +110,9 @@ async def index_document(
     source_url: Optional[str] = None,
 ):
     """Index a document in vector store"""
-    if not _client or not _encoder:
-        await init_vector_store()
+    if not HAS_QDRANT or not _client:
+        logger.debug("Skipping document indexing (vector store disabled)")
+        return
 
     try:
         # Generate embedding
@@ -121,14 +139,13 @@ async def index_document(
         logger.info("Indexed document", doc_id=doc_id, kb_id=knowledge_base_id)
 
     except Exception as e:
-        logger.error("Error indexing document", error=str(e), exc_info=True)
-        raise
+        logger.error("Error indexing document", error=str(e))
 
 
 async def delete_document(doc_id: str):
     """Delete a document from vector store"""
-    if not _client:
-        await init_vector_store()
+    if not HAS_QDRANT or not _client:
+        return
 
     try:
         # Delete by document_id filter
@@ -156,3 +173,4 @@ async def close_vector_store():
     if _client:
         await _client.close()
         logger.info("Vector store closed")
+

@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import structlog
 from openai import AsyncOpenAI
-from anthropic import AsyncAnthropic
 import tiktoken
 
 from app.config import settings
@@ -31,8 +30,8 @@ class ResponseGenerator:
     """Production-grade AI response generation engine"""
 
     def __init__(self):
-        self.openai_client: Optional[AsyncOpenAI] = None
-        self.anthropic_client: Optional[AsyncAnthropic] = None
+        self.perplexity_client: Optional[AsyncOpenAI] = None
+        self.gemini_client: Optional[AsyncOpenAI] = None
         self.prompt_builder = PromptBuilder()
         self.content_moderator = ContentModerator()
         self.quality_scorer = QualityScorer()
@@ -40,9 +39,18 @@ class ResponseGenerator:
 
     async def initialize(self):
         """Initialize LLM clients"""
-        self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.anthropic_client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        logger.info("AI clients initialized")
+        # Initialize Perplexity client
+        self.perplexity_client = AsyncOpenAI(
+            api_key=settings.PERPLEXITY_API_KEY,
+            base_url="https://api.perplexity.ai"
+        )
+        
+        # Initialize Gemini client (OpenAI compatible)
+        self.gemini_client = AsyncOpenAI(
+            api_key=settings.GEMINI_API_KEY,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        logger.info("AI clients initialized (Perplexity & Gemini)")
 
     async def process_detected_post(self, message: Dict):
         """Process a detected post and generate response"""
@@ -254,10 +262,10 @@ class ResponseGenerator:
         temperature = persona.get("temperature", 0.7)
         max_tokens = persona.get("max_tokens", 500)
 
-        # Try OpenAI first
+        # Try Perplexity first
         try:
-            response = await self.openai_client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
+            response = await self.perplexity_client.chat.completions.create(
+                model=settings.PERPLEXITY_MODEL,
                 messages=[
                     {"role": "system", "content": persona.get("system_prompt", "")},
                     {"role": "user", "content": prompt},
@@ -270,45 +278,47 @@ class ResponseGenerator:
 
             content = response.choices[0].message.content
             metadata = {
-                "provider": "openai",
-                "model": settings.OPENAI_MODEL,
+                "provider": "perplexity",
+                "model": settings.PERPLEXITY_MODEL,
                 "tokens": response.usage.total_tokens,
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
-                "cost": self.calculate_openai_cost(response.usage),
+                "cost": self.calculate_perplexity_cost(response.usage),
             }
 
-            token_usage.labels(provider="openai", model=settings.OPENAI_MODEL).inc(
+            token_usage.labels(provider="perplexity", model=settings.PERPLEXITY_MODEL).inc(
                 response.usage.total_tokens
             )
 
             return content, metadata
 
         except Exception as e:
-            logger.warning("OpenAI generation failed, falling back to Anthropic", error=str(e))
+            logger.warning("Perplexity generation failed, falling back to Gemini", error=str(e))
 
-            # Fallback to Anthropic
+            # Fallback to Gemini
             try:
-                response = await self.anthropic_client.messages.create(
-                    model=settings.ANTHROPIC_MODEL,
-                    max_tokens=max_tokens,
+                response = await self.gemini_client.chat.completions.create(
+                    model=settings.GEMINI_MODEL,
+                    messages=[
+                        {"role": "system", "content": persona.get("system_prompt", "")},
+                        {"role": "user", "content": prompt},
+                    ],
                     temperature=temperature,
-                    system=persona.get("system_prompt", ""),
-                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
                 )
 
-                content = response.content[0].text
+                content = response.choices[0].message.content
                 metadata = {
-                    "provider": "anthropic",
-                    "model": settings.ANTHROPIC_MODEL,
-                    "tokens": response.usage.input_tokens + response.usage.output_tokens,
-                    "prompt_tokens": response.usage.input_tokens,
-                    "completion_tokens": response.usage.output_tokens,
-                    "cost": self.calculate_anthropic_cost(response.usage),
+                    "provider": "gemini",
+                    "model": settings.GEMINI_MODEL,
+                    "tokens": response.usage.total_tokens,
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "cost": 0.0,  # Gemini Flash is free/cheap, treating as 0 for now or implement pricing
                 }
 
-                token_usage.labels(provider="anthropic", model=settings.ANTHROPIC_MODEL).inc(
-                    metadata["tokens"]
+                token_usage.labels(provider="gemini", model=settings.GEMINI_MODEL).inc(
+                    response.usage.total_tokens
                 )
 
                 return content, metadata
@@ -325,19 +335,16 @@ class ResponseGenerator:
         response_text, _ = await self.generate_with_llm(safe_prompt, persona, "")
         return response_text
 
-    def calculate_openai_cost(self, usage) -> float:
-        """Calculate OpenAI API cost"""
-        # GPT-4 Turbo pricing (as of 2024)
-        input_cost = usage.prompt_tokens * 0.01 / 1000
-        output_cost = usage.completion_tokens * 0.03 / 1000
-        return input_cost + output_cost
+    def calculate_perplexity_cost(self, usage) -> float:
+        """Calculate Perplexity API cost"""
+        # Perplexity Sonar Small pricing (approximate)
+        # $0.20 per 1M tokens
+        return (usage.total_tokens * 0.20) / 1_000_000
 
-    def calculate_anthropic_cost(self, usage) -> float:
-        """Calculate Anthropic API cost"""
-        # Claude 3 Opus pricing (as of 2024)
-        input_cost = usage.input_tokens * 0.015 / 1000
-        output_cost = usage.output_tokens * 0.075 / 1000
-        return input_cost + output_cost
+    def calculate_gemini_cost(self, usage) -> float:
+        """Calculate Gemini API cost"""
+        # Gemini Flash is free within limits, or very cheap
+        return 0.0
 
     async def save_response(
         self,
@@ -404,6 +411,8 @@ class ResponseGenerator:
 
     async def close(self):
         """Cleanup resources"""
-        if self.openai_client:
-            await self.openai_client.close()
+        if self.perplexity_client:
+            await self.perplexity_client.close()
+        if self.gemini_client:
+            await self.gemini_client.close()
         logger.info("Response generator closed")

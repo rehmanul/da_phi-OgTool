@@ -26,13 +26,20 @@ class Settings(BaseSettings):
     QDRANT_URL: str = "http://qdrant:6333"
     QDRANT_COLLECTION: str = "knowledge_base"
 
-    # OpenAI
-    OPENAI_API_KEY: str
+    # Perplexity (Primary)
+    PERPLEXITY_API_KEY: str
+    PERPLEXITY_MODEL: str = "llama-3.1-sonar-small-128k-online"
+
+    # Google Gemini (Fallback)
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+
+    # Legacy/Optional (OpenAI/Anthropic)
+    OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-large"
 
-    # Anthropic
-    ANTHROPIC_API_KEY: str
+    ANTHROPIC_API_KEY: Optional[str] = None
     ANTHROPIC_MODEL: str = "claude-3-opus-20240229"
 
     # Generation parameters

@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: ogtool-monolith
+    env: docker
+    buildCommand: docker build -t ogtool-monolith .
+    startCommand: ./scripts/start.sh # Docker entrypoint handles it
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ogtool-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ogtool-redis
+          property: connectionString
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: REDDIT_USER_AGENT
+        value: OGTool/1.0
+
+databases:
+  - name: ogtool-db
+    plan: free
+    databaseName: ogtool
+    user: ogtool
+
+# Redis is optional but good for caching/queues if we used Celery, 
+# but we are using internal queue so we might not need it.
+# Render Redis is not free. We can skip it or use in-memory.
+# We'll skip Redis for "0 cost" and rely on in-memory queue.
