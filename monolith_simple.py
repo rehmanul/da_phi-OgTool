@@ -138,16 +138,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error"},
     )
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "service": "OGTool Monolith",
-        "version": settings.VERSION,
-        "status": "operational",
-        "docs": "/docs",
-        "message": "Simplified deployment - core API only"
-    }
+# Root endpoint moved to serve HTML frontend below
 
 @app.get("/health")
 async def health_check():
@@ -316,18 +307,204 @@ async def delete_monitor(monitor_id: str):
         return {"status": "deleted"}
     raise HTTPException(status_code=404, detail="Monitor not found")
 
-# Serve static files (frontend)
+# Serve the main frontend HTML
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    """Serve the frontend HTML"""
+    # Read and return the index.html file content directly
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OGTool - AI-Powered Lead Generation Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app" class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <span class="text-2xl font-bold text-indigo-600">OGTool</span>
+                        <span class="ml-2 text-sm text-gray-500">Lead Generation AI</span>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <span id="connection-status" class="text-sm text-green-600">● Connected</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Dashboard -->
+        <div class="max-w-7xl mx-auto px-4 py-8">
+            <!-- Lead Search Section -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-6">Lead Generation Search</h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <!-- Keywords Input -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Keywords (comma separated)</label>
+                        <input type="text" id="keywords-input"
+                               value="AI startup, machine learning, SaaS"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500">
+                    </div>
+
+                    <!-- Platforms Selection -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Platforms</label>
+                        <div class="flex space-x-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="reddit-check" checked class="mr-2">
+                                <span>Reddit</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="linkedin-check" class="mr-2">
+                                <span>LinkedIn</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="blogs-check" checked class="mr-2">
+                                <span>Blogs</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search Button -->
+                <button onclick="searchLeads()"
+                        class="w-full md:w-auto px-8 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                    Search for Leads
+                </button>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-section" class="hidden">
+                <h3 class="text-xl font-bold mb-4">Lead Results</h3>
+                <div id="leads-container" class="space-y-4"></div>
+            </div>
+
+            <!-- Quick Links -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-bold mb-6">Quick Actions</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <a href="/docs" target="_blank" class="p-4 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">
+                        <h3 class="font-semibold text-indigo-700">API Documentation</h3>
+                        <p class="text-sm text-gray-600 mt-2">Explore the full API</p>
+                    </a>
+                    <a href="/health" target="_blank" class="p-4 bg-green-50 rounded-lg hover:bg-green-100 transition">
+                        <h3 class="font-semibold text-green-700">Health Status</h3>
+                        <p class="text-sm text-gray-600 mt-2">Check system status</p>
+                    </a>
+                    <a href="/api/v1/status" target="_blank" class="p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition">
+                        <h3 class="font-semibold text-purple-700">API Status</h3>
+                        <p class="text-sm text-gray-600 mt-2">View available endpoints</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = window.location.origin;
+
+        // Search for leads
+        async function searchLeads() {
+            const keywords = document.getElementById('keywords-input').value.split(',').map(k => k.trim());
+            const platforms = [];
+            if (document.getElementById('reddit-check').checked) platforms.push('reddit');
+            if (document.getElementById('linkedin-check').checked) platforms.push('linkedin');
+            if (document.getElementById('blogs-check').checked) platforms.push('blogs');
+
+            if (keywords.length === 0 || keywords[0] === '') {
+                alert('Please enter at least one keyword');
+                return;
+            }
+
+            try {
+                const response = await axios.post(`${API_BASE_URL}/api/v1/leads/search`, {
+                    keywords: keywords,
+                    platforms: platforms,
+                    limit: 20
+                });
+
+                displayLeads(response.data);
+            } catch (error) {
+                console.error('Search error:', error);
+                alert('Search is being implemented. For now, explore the API documentation.');
+            }
+        }
+
+        // Display leads
+        function displayLeads(leads) {
+            const container = document.getElementById('leads-container');
+            const section = document.getElementById('results-section');
+
+            container.innerHTML = '';
+
+            if (leads.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">No leads found. Try different keywords.</p>';
+            } else {
+                leads.forEach(lead => {
+                    const leadCard = document.createElement('div');
+                    leadCard.className = 'bg-white border border-gray-200 rounded-lg p-4';
+                    leadCard.innerHTML = `
+                        <h4 class="font-semibold">${lead.title}</h4>
+                        <p class="text-gray-600 mt-2">${lead.content}</p>
+                        <div class="mt-3 text-sm text-gray-500">
+                            <span>${lead.platform}</span> | <span>${lead.author}</span>
+                        </div>
+                    `;
+                    container.appendChild(leadCard);
+                });
+            }
+
+            section.classList.remove('hidden');
+        }
+
+        // Check connection on load
+        async function checkConnection() {
+            try {
+                await axios.get(`${API_BASE_URL}/health`);
+                document.getElementById('connection-status').innerHTML = '● Connected';
+                document.getElementById('connection-status').className = 'text-sm text-green-600';
+            } catch (error) {
+                document.getElementById('connection-status').innerHTML = '● Disconnected';
+                document.getElementById('connection-status').className = 'text-sm text-red-600';
+            }
+        }
+
+        // Initialize
+        checkConnection();
+    </script>
+</body>
+</html>"""
+
+    return HTMLResponse(content=html_content)
+
+# Mount static files directory if it exists
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
-
-    @app.get("/", response_class=HTMLResponse)
-    async def serve_frontend():
-        """Serve the frontend HTML"""
-        try:
-            with open("static/index.html", "r") as f:
-                return HTMLResponse(content=f.read())
-        except:
-            return HTMLResponse(content="<h1>OGTool API</h1><p>Frontend not found. API is operational.</p>")
 
 if __name__ == "__main__":
     import uvicorn
