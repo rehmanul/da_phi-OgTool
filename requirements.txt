@@ -33,7 +33,7 @@ beautifulsoup4==4.12.3
 
 # Blog monitoring
 feedparser==6.0.11
-trafilatura==2.0.1
+trafilatura==2.0.0
 requests==2.32.3
 
 # Common
