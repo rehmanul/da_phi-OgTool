@@ -1,0 +1,32 @@
+{
+  "name": "ogtool",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 5000",
+    "build": "next build",
+    "start": "next start -p 5000",
+    "lint": "next lint",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@headlessui/react": "^1.7.16",
+    "autoprefixer": "^10.4.14",
+    "lucide-react": "^0.264.0",
+    "next": "^14.2.33",
+    "postcss": "^8.4.21",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "tailwindcss": "^3.3.5"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.33",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0"
+  }
+}
